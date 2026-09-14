@@ -1,0 +1,111 @@
+# Публикация нашей сборки GrimAC в свой Reposilite, раздел third-party - тот же,
+# откуда её берёт XMineNode (plugins/common.yml, координата ru.xmine.thirdparty:grimac).
+#
+# Что в форке изменено: подстановка переменных среды в конфиги по правилам ядра
+# XMine (EnvironmentSubstitutor + EnvironmentOverlay в common). Grim читает YAML
+# своей библиотекой Configuralize, поэтому патч YamlConfiguration ядра до него не
+# доходит, а логин и пароль БД в git класть нельзя.
+#
+# ЭТОТ РЕПОЗИТОРИЙ ПУБЛИЧНЫЙ, поэтому `runs-on` здесь - только раннеры GitHub и
+# никогда `self-hosted` (вики, infra/ci.md, «Граница безопасности: только
+# приватные репозитории»). По той же причине нет триггера `pull_request`, а job
+# не запускается в форках самого форка.
+#
+# Триггер - только workflow_dispatch, как у XMineServer/HuskSync: секретов
+# XMINE_MAVEN_USERNAME / XMINE_MAVEN_PASSWORD здесь пока нет, их заводит
+# владелец. Push-триггер добавляется одной строкой, когда он решит.
+#
+# Апстримные workflow (gradle-publish.yml, release.yml и прочие) в форке не
+# трогаются: у форков GitHub Actions по умолчанию выключены, а их секретов
+# (Modrinth и т.п.) здесь нет.
+
+name: XMine - publish GrimAC
+
+on:
+  workflow_dispatch:
+
+# Публикация не должна идти в два потока: параллельные сборки означали бы гонку
+# за то, чей номер снапшота окажется последним в maven-metadata.xml.
+concurrency:
+  group: xmine-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Настоящий Maven SNAPSHOT, как у HuskSync: правки на стенде понадобятся не
+  # раз, а снапшот перезаливается по тому же адресу. xmine.1 - номер нашей
+  # правки поверх апстримной 2.3.74, билды снапшота нумерует сам Reposilite.
+  XMINE_VERSION: 2.3.74-xmine.1-SNAPSHOT
+  XMINE_MAVEN_URL: https://maven.xmine.world/third-party
+  MAVEN_GROUP_PATH: ru/xmine/thirdparty
+  MAVEN_ARTIFACT: grimac
+
+jobs:
+  publish:
+    if: github.repository == 'XMineServer/Grim'
+    runs-on: ubuntu-latest
+
+    env:
+      XMINE_MAVEN_USERNAME: ${{ secrets.XMINE_MAVEN_USERNAME }}
+      XMINE_MAVEN_PASSWORD: ${{ secrets.XMINE_MAVEN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Fail early without credentials
+        run: |
+          set -eu
+          if [ -z "${XMINE_MAVEN_USERNAME:-}" ] || [ -z "${XMINE_MAVEN_PASSWORD:-}" ]; then
+            echo "::error::Secrets XMINE_MAVEN_USERNAME / XMINE_MAVEN_PASSWORD are not set"
+            exit 1
+          fi
+
+      # -PxmineSkipFabric=true во всех шагах: публикуется только jar для Paper, а
+      # модули Fabric при конфигурации тянут библиотеки Minecraft (settings.gradle.kts).
+      - name: Test
+        # Только своя правка: у апстрима тестов нет, наш набор - в common.
+        run: ./gradlew -PxmineSkipFabric=true :common:test --stacktrace
+
+      - name: Build
+        run: ./gradlew -PxmineSkipFabric=true :bukkit:shadowJar --stacktrace
+
+      - name: Publish snapshot to Reposilite
+        run: |
+          ./gradlew -PxmineSkipFabric=true :bukkit:publishXmineThirdPartyPublicationToXmineRepository \
+            -PxmineVersion="${XMINE_VERSION}" --stacktrace
+
+      - name: Verify metadata round-trip
+        # "Опубликовано" должно означать больше, чем ответ 2xx: читаем
+        # maven-metadata.xml обратно - без timestamp/buildNumber fetch.py ноды
+        # не соберёт имя файла.
+        run: |
+          set -eu
+          BASE="${XMINE_MAVEN_URL}/${MAVEN_GROUP_PATH}/${MAVEN_ARTIFACT}/${XMINE_VERSION}"
+          curl --fail-with-body --silent --show-error \
+               --user "${XMINE_MAVEN_USERNAME}:${XMINE_MAVEN_PASSWORD}" \
+               -o /tmp/maven-metadata.xml "${BASE}/maven-metadata.xml"
+          TIMESTAMP="$(sed -n 's:.*<timestamp>\(.*\)</timestamp>.*:\1:p' /tmp/maven-metadata.xml)"
+          BUILD_NUMBER="$(sed -n 's:.*<buildNumber>\(.*\)</buildNumber>.*:\1:p' /tmp/maven-metadata.xml)"
+          if [ -z "$TIMESTAMP" ] || [ -z "$BUILD_NUMBER" ]; then
+            echo "::error::maven-metadata.xml has no complete versioning/snapshot"
+            cat /tmp/maven-metadata.xml
+            exit 1
+          fi
+          {
+            echo "### Published"
+            echo '```'
+            echo "ru.xmine.thirdparty:${MAVEN_ARTIFACT}:${XMINE_VERSION}"
+            echo "${MAVEN_ARTIFACT}-${XMINE_VERSION%-SNAPSHOT}-${TIMESTAMP}-${BUILD_NUMBER}.jar"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

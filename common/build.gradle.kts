@@ -75,6 +75,15 @@ dependencies {
     compileOnly(libs.viabackwards)
     compileOnly(libs.netty)
     compileOnly(libs.luckperms)
+
+    // XMine - тесты подстановки переменных среды
+    testImplementation(testlibs.junitJupiter)
+    testRuntimeOnly(testlibs.junitPlatformLauncher)
+}
+
+// XMine - тесты подстановки переменных среды
+tasks.test {
+    useJUnitPlatform()
 }
 
 publishing.publications.create<MavenPublication>("maven") {

@@ -75,6 +75,13 @@ if (gradle.startParameter.isBuildScan) {
 rootProject.name = "grimac"
 include("common")
 include("bukkit")
+// XMine start - сборка без Fabric
+// -PxmineSkipFabric=true не подключает модули Fabric. XMine нужен только jar для
+// Paper (:bukkit), а Gradle конфигурирует все модули разом, и Fabric Loom при этом
+// тянет библиотеки Minecraft (libraries.minecraft.net) - медленно на CI и
+// недоступно из сети, где этот хост отвечает только по IPv6. bukkit и common от
+// модулей Fabric не зависят.
+if (providers.gradleProperty("xmineSkipFabric").orNull != "true") {
 include("fabric")
 include(":fabric:shared")
 include(":fabric:intermediary")
@@ -85,5 +92,7 @@ include(":fabric:intermediary:mc1205")
 include(":fabric:intermediary:mc12111")
 include(":fabric:official")
 include(":fabric:official:mc261")
+}
+// XMine end - сборка без Fabric
 
 if (file("workspace.gradle.kts").exists()) apply(from = "workspace.gradle.kts")

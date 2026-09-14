@@ -13,6 +13,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.logging.Logger;
 public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
 
     private final DynamicConfig config;
+    private final EnvironmentOverlay environmentOverlay = new EnvironmentOverlay(); // XMine - подстановка переменных среды
     private boolean initialized = false;
 
     public ConfigManagerFileImpl() {
@@ -117,6 +119,19 @@ public class ConfigManagerFileImpl implements ConfigManager, BasicReloadable {
         } catch (Exception e) {
             throw new RuntimeException("Failed to load config", e);
         }
+
+        // XMine start - подстановка переменных среды
+        List<File> files = new ArrayList<>(List.of(
+                getConfigFile("config.yml"),
+                getConfigFile("messages.yml"),
+                getConfigFile("discord.yml"),
+                getConfigFile("punishments.yml"),
+                getConfigFile("database.yml")));
+        for (String id : BACKEND_IDS) {
+            files.add(getConfigFile("databases/" + id + ".yml"));
+        }
+        environmentOverlay.apply(config, files, System::getenv);
+        // XMine end - подстановка переменных среды
     }
 
     private void upgrade() {
