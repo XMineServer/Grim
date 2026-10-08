@@ -173,19 +173,19 @@ publishing.publications.create<MavenPublication>("maven") {
 
 // XMine start - публикация в свой Reposilite
 //
-// Своя координата ru.xmine.thirdparty:grimac в разделе third-party - оттуда jar
-// берёт XMineNode (plugins/common.yml). Версия - настоящий maven-SNAPSHOT,
-// приходит из xmine-publish.yml через -PxmineVersion: для SNAPSHOT Reposilite сам
-// ведёт maven-metadata.xml, без которого build/fetch.py ноды не соберёт имя файла.
-// Значение по умолчанию - только чтобы локальная сборка без -P не падала.
+// Своя координата ru.xmine.thirdparty:grimac в разделе-кандидате пары форков
+// fork-snapshot (вики, ADR-0056) - оттуда jar берёт XMineNode (plugins/common.yml).
+// Версия - адрес сборки <апстрим>-<ветка>-<дата>-<хеш>, её считает xmine-publish.yml
+// и передаёт через -PxmineVersion. Значение по умолчанию - только чтобы локальная
+// сборка без -P не падала.
 //
 // Апстримная публикация "maven" с появлением репозитория тоже получает задачу
 // публикации в него, но workflow зовёт только задачу своей координаты.
 publishing {
-    publications.create<MavenPublication>("xmineThirdParty") {
+    publications.create<MavenPublication>("xmineFork") {
         groupId = "ru.xmine.thirdparty"
         artifactId = "grimac"
-        version = providers.gradleProperty("xmineVersion").getOrElse("0.0.0-xmine-local-SNAPSHOT")
+        version = providers.gradleProperty("xmineVersion").getOrElse("0.0.0-xmine-local")
         artifact(tasks["shadowJar"]) {
             classifier = null
         }
@@ -193,7 +193,7 @@ publishing {
     repositories {
         maven {
             name = "xmine"
-            url = uri(providers.environmentVariable("XMINE_MAVEN_URL").getOrElse("https://maven.xmine.world/third-party"))
+            url = uri(providers.environmentVariable("XMINE_MAVEN_URL").getOrElse("https://maven.xmine.world/fork-snapshot"))
             credentials {
                 username = providers.environmentVariable("XMINE_MAVEN_USERNAME").orNull
                 password = providers.environmentVariable("XMINE_MAVEN_PASSWORD").orNull
